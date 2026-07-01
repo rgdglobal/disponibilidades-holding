@@ -119,7 +119,7 @@
   }
   td input:hover, td select:hover{background:#F7F6F1;}
   td input:focus, td select:focus{outline:none;background:#fff;border-color:var(--line-strong);}
-  td input[type="number"]{text-align:right;font-variant-numeric:tabular-nums;}
+  td input.num-input{text-align:right;font-variant-numeric:tabular-nums;}
   td input[type="date"]{color:var(--ink-soft);font-size:12px;}
   .row-del{
     background:none;border:none;color:var(--ink-faint);cursor:pointer;font-size:14px;
@@ -272,6 +272,57 @@ function defaultState(){
 function todayStr(){
   const d = new Date();
   return d.toISOString().slice(0,10);
+}
+
+// Formatea un numero para mostrar en el input (ej: 1.651.110,78)
+function fmtInput(n){
+  if(!n && n !== 0) return '';
+  const v = Number.isFinite(Number(n)) ? Number(n) : 0;
+  if(v === 0) return '';
+  // Detectar si tiene decimales reales
+  const hasDecimals = v % 1 !== 0;
+  return v.toLocaleString('es-AR', {
+    minimumFractionDigits: hasDecimals ? 2 : 0,
+    maximumFractionDigits: 2
+  });
+}
+
+// Convierte string formateado en AR a numero (1.651.110,78 → 1651110.78)
+function parseInput(str){
+  if(!str) return 0;
+  // Quitar puntos de miles, reemplazar coma decimal por punto
+  const clean = str.replace(/\./g, '').replace(',', '.');
+  return parseFloat(clean) || 0;
+}
+
+// Monta un input de saldo con formato AR
+function makeSaldoInput(b, onChangeCallback){
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'num-input';
+  input.inputMode = 'decimal';
+  input.placeholder = '0';
+  input.value = fmtInput(b.saldo);
+
+  // Al enfocar: mostrar numero crudo sin formato para facilitar la edicion
+  input.addEventListener('focus', e => {
+    const raw = b.saldo ? String(b.saldo).replace('.', ',') : '';
+    e.target.value = raw;
+    e.target.select();
+  });
+
+  // Al tipear: solo guardar el valor en estado (sin reformatear)
+  input.addEventListener('input', e => {
+    b.saldo = parseInput(e.target.value);
+    onChangeCallback();
+  });
+
+  // Al salir del campo: aplicar formato visual
+  input.addEventListener('blur', e => {
+    e.target.value = fmtInput(b.saldo);
+  });
+
+  return input;
 }
 
 function fmtMoney(n, decimals){
@@ -444,14 +495,24 @@ function renderRatesRow(){
       wrap.className = 'rate-field';
       wrap.innerHTML = '<span>' + cur + ' / USD</span>';
       const input = document.createElement('input');
-      input.type = 'number';
-      input.step = '0.01';
-      input.value = rateFor(cur);
+      input.type = 'text';
+      input.className = 'num-input';
+      input.inputMode = 'decimal';
+      input.style.width = '90px';
+      input.value = fmtInput(rateFor(cur));
+      input.addEventListener('focus', e => {
+        const raw = state.rates[cur] ? String(state.rates[cur]).replace('.', ',') : '';
+        e.target.value = raw;
+        e.target.select();
+      });
       input.addEventListener('input', e => {
-        state.rates[cur] = parseFloat(e.target.value) || 0;
+        state.rates[cur] = parseInput(e.target.value);
         scheduleSave();
         updateTotalsOnly();
         updateInlineTotals();
+      });
+      input.addEventListener('blur', e => {
+        e.target.value = fmtInput(state.rates[cur]);
       });
       wrap.appendChild(input);
       ratesRow.appendChild(wrap);
@@ -538,12 +599,7 @@ function renderCompanies(){
 
         const tdSaldo = document.createElement('td');
         tdSaldo.className = 'num';
-        const inSaldo = document.createElement('input');
-        inSaldo.type = 'number';
-        inSaldo.step = '0.01';
-        inSaldo.value = b.saldo;
-        inSaldo.addEventListener('input', e => {
-          b.saldo = parseFloat(e.target.value) || 0;
+        const inSaldo = makeSaldoInput(b, () => {
           scheduleSave();
           renderSummary();
           updateInlineTotals();
